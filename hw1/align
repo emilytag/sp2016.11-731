@@ -60,7 +60,7 @@ while iteration < 5:
     for forg in f:
       for eng in e:
         probs[eng][forg] = count[eng][forg]/total[forg]
-output = open("model1.1.out", "w")
+output = open("model1.out", "w")
 for (n, (f, e)) in enumerate(bitext):
   for i in range(len(e)):
     eng = e[i]
@@ -68,7 +68,21 @@ for (n, (f, e)) in enumerate(bitext):
     for j in range(len(f)):
       forg = f[j]
       possibilities[j] = probs[eng][forg]
-    output.write(str(possibilities.index(max(possibilities)))+"-"+str(i)+" ")
+    m = max(possibilities)
+    maxes = [k for k, j in enumerate(possibilities) if j == m]
+    if len(maxes) == 1:
+      #print "***"
+      output.write(str(possibilities.index(m))+"-"+str(i)+" ")
+    else:
+      difference = 100
+      best = 'x'
+      for x in maxes:
+        #print eng, i, f[x], x
+        if abs(x-i) < difference:
+          difference = abs(x-i)
+          best = x
+      #print "best: ", f[best], best,"versus",str(possibilities.index(m)),"\n"
+      output.write(str(best)+"-"+str(i)+" ")
     #print eng+"-"+f[possibilities.index(max(possibilities))]
   output.write("\n")
 
