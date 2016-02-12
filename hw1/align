@@ -31,7 +31,7 @@ for (n, (f, e)) in enumerate(bitext):
 initialProb = float(1.0)/float(len(set(eVocab)))
 f_initialProb = float(1.0)/float(len(set(fVocab)))
 
-while iteration < 5:
+while iteration < 8:
   iteration += 1
   print iteration, "iterations...", datetime.now() - start
   count = {}
