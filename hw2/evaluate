@@ -1,8 +1,44 @@
 #!/usr/bin/env python
 import argparse # optparse is deprecated
 from itertools import islice # slicing for iterators
+from nltk.parse.stanford import StanfordDependencyParser
+from scipy import stats
+import sys
+import subprocess
  
-# DRY
+def dependency_matches(h, ref, dependency_parser):
+    precision = 0
+    recall = 0
+    total_p = 0
+    total_r = 0
+    h = " ".join(h).lower()
+    ref = " ".join(ref).lower()
+    h_result = dependency_parser.raw_parse(h)
+    h_dep = h_result.next()
+    h_deps = list(h_dep.triples())
+    ref_result = dependency_parser.raw_parse(ref)
+    ref_dep = ref_result.next()
+    ref_deps = list(ref_dep.triples())
+    for dep in h_deps:
+      total_p += 1
+      h_triple = dep[0][0]+"-"+dep[1]+"-"+dep[2][0]
+      for r in ref_deps:
+        r_triple = r[0][0]+"-"+r[1]+"-"+r[2][0]
+        if h_triple == r_triple:
+          precision += 1
+    for dep in ref_deps:
+      total_r += 1
+      r_triple = dep[0][0]+"-"+dep[1]+"-"+dep[2][0]
+      for h in h_deps:
+        h_triple = h[0][0]+"-"+h[1]+"-"+h[2][0]
+        if h_triple == r_triple:
+          recall += 1
+    try:
+      out = stats.hmean([precision, recall])
+    except:
+      out = 0
+    return out
+
 def word_matches(h, ref):
     return sum(1 for w in h if w in ref)
     # or sum(w in ref for w in f) # cast bool -> int
@@ -17,6 +53,10 @@ def main():
             help='Number of hypothesis pairs to evaluate')
     # note that if x == [1, 2, 3], then x[:None] == x[:] == x (copy); no need for sys.maxint
     opts = parser.parse_args()
+
+    path_to_jar = 'stanford-parser-full-2014-08-27/stanford-parser.jar'
+    path_to_models_jar = 'stanford-parser-full-2014-08-27/stanford-parser-3.4.1-models.jar'
+    dependency_parser = StanfordDependencyParser(path_to_jar=path_to_jar, path_to_models_jar=path_to_models_jar)
  
     # we create a generator and avoid loading all sentences into a list
     def sentences():
@@ -27,8 +67,10 @@ def main():
     # note: the -n option does not work in the original code
     for h1, h2, ref in islice(sentences(), opts.num_sentences):
         rset = set(ref)
-        h1_match = word_matches(h1, rset)
-        h2_match = word_matches(h2, rset)
+        #h1_match = word_matches(h1, rset)
+        #h2_match = word_matches(h2, rset)
+        h1_match = dependency_matches(h1, rset, dependency_parser)
+        h2_match = dependency_matches(h2, rset, dependency_parser)
         print(-1 if h1_match > h2_match else # \begin{cases}
                 (0 if h1_match == h2_match
                     else 1)) # \end{cases}
