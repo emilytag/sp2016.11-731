@@ -225,7 +225,7 @@ def main():
 
     print "fitting model..."
     model.fitModel()
-    for h1, h2, ref in islice(sentences(opts.test), opts.num_sentences):
+    for h1, h2, ref in islice(sentences("dev.sents.txt"), opts.num_sentences):
       allgrams1 = [get_ngrams(h1sent, 1)] + [get_ngrams(h1sent, 2)] + [get_ngrams(h1sent, 3)] + [get_ngrams(h1sent, 4)]
       allgrams2 = [get_ngrams(h2sent, 1)] + [get_ngrams(h2sent, 2)] + [get_ngrams(h2sent, 3)] + [get_ngrams(h2sent, 4)]
       allgrams_ref = [get_ngrams(refsent, 1)] + [get_ngrams(refsent, 2)] + [get_ngrams(refsent, 3)] + [get_ngrams(refsent, 4)]
