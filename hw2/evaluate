@@ -119,8 +119,9 @@ class LogRegModel:
     def predict(self, h1, h2, ref):
       features = self.extract_features(h1, h2, ref)
       f = self.vec.transform(features).toarray()
-      prediction = self.model.predict(f)[0]
-      print prediction
+      prediction = self.model.predict(f)
+      prob = self.model.predict_proba(f)
+      print self.model.predict(f)[0]
 
 '''
 def dependency_matches(h, ref, dependency_parser):
@@ -208,6 +209,7 @@ def main():
     # note: the -n option does not work in the original code
     for corr, h1, h2, ref in islice(sentences(opts.input), opts.num_sentences):
         #rset = set(ref)
+        corr = "".join(corr)
         h1sent = unicode(" ".join(h1),'utf-8')
         h2sent = unicode(" ".join(h2),'utf-8')
         refsent = unicode(" ".join(ref),'utf-8')
@@ -225,11 +227,14 @@ def main():
 
     print "fitting model..."
     model.fitModel()
-    for h1, h2, ref in islice(sentences("dev.sents.txt"), opts.num_sentences):
+    for h1, h2, ref in islice(sentences("data/dev.sents.txt"), opts.num_sentences):
+      h1sent = unicode(" ".join(h1),'utf-8')
+      h2sent = unicode(" ".join(h2),'utf-8')
+      refsent = unicode(" ".join(ref),'utf-8')  
       allgrams1 = [get_ngrams(h1sent, 1)] + [get_ngrams(h1sent, 2)] + [get_ngrams(h1sent, 3)] + [get_ngrams(h1sent, 4)]
       allgrams2 = [get_ngrams(h2sent, 1)] + [get_ngrams(h2sent, 2)] + [get_ngrams(h2sent, 3)] + [get_ngrams(h2sent, 4)]
       allgrams_ref = [get_ngrams(refsent, 1)] + [get_ngrams(refsent, 2)] + [get_ngrams(refsent, 3)] + [get_ngrams(refsent, 4)]
-      print model.predict(allgrams1, allgrams2, allgrams_ref)
+      model.predict(allgrams1, allgrams2, allgrams_ref)
 # convention to allow import of this file as a module
 if __name__ == '__main__':
     main()
