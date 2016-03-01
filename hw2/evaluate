@@ -4,6 +4,7 @@ import argparse # optparse is deprecated
 from itertools import islice # slicing for iterators
 from scipy import stats
 from sklearn.linear_model import LogisticRegression
+from sklearn.feature_extraction import DictVectorizer
 import numpy as np
 from nltk.tokenize import word_tokenize
 from nltk.util import ngrams
@@ -11,7 +12,10 @@ from nltk.util import ngrams
 class LogRegModel:
     def __init__(self):
       self.model = LogisticRegression()
+      self.vec = DictVectorizer()
       self.allFeatures = []
+      self.allCorrect = []
+
     def extract_features(self, h1, h2, ref):
       featureSet = {}
       precision1 = 0
@@ -22,12 +26,13 @@ class LogRegModel:
       recall2 = 0
       total_p2 = 0
       total_r2 = 0
+      ngram_prec1 = 0
+      ngram_prec2 = 0
       for n in range(0,3):
         for word in h1[n]:
           total_p1 += 1
           if word in ref[n]:
             precision1 += 1
-            print word
         for word in h2[n]:
           total_p2 += 1
           if word in ref[n]:
@@ -39,10 +44,38 @@ class LogRegModel:
             recall1 += 1
           if word in h2[n]:
             recall2 += 1
-        featureSet[str(n)+"-precision-h1"] = float(precision1)/float(total_p1)
-        featureSet[str(n)+"-precision-h2"] = float(precision2)/float(total_p2)
-        featureSet[str(n)+"-recall-h1"] = float(recall1)/float(total_r1)
-        featureSet[str(n)+"-recall-h2"] = float(recall2)/float(total_r2)
+        try:
+          ngram_prec1 += float(precision1)/float(total_p1)
+        except:
+          ngram_prec1 += 0.0
+        try:
+          ngram_prec2 += float(precision2)/float(total_p2)
+        except:
+          ngram_prec2 += 0.0 
+        try:
+          featureSet[str(n)+"-precision-h1"] = float(precision1)/float(total_p1)
+        except:
+           featureSet[str(n)+"-precision-h1"] = "x"
+        try:
+          featureSet[str(n)+"-precision-h2"] = float(precision2)/float(total_p2)
+        except:
+          featureSet[str(n)+"-precision-h2"] = "x"
+        try:
+          featureSet[str(n)+"-recall-h1"] = float(recall1)/float(total_r1)
+        except:
+          featureSet[str(n)+"-recall-h1"] = "x" 
+        try:
+          featureSet[str(n)+"-recall-h2"] = float(recall2)/float(total_r2)
+        except:
+          featureSet[str(n)+"-recall-h2"] = "x"
+        try:
+          featureSet[str(n)+"-harmonic mean-h1"] = stats.hmean([float(precision1)/float(total_p1), float(recall1)/float(total_r1)])
+        except:
+          featureSet[str(n)+"-harmonic mean-h1"] = "x"
+        try:
+          featureSet[str(n)+"-harmonic mean-h2"] = stats.hmean([float(precision2)/float(total_p2), float(recall2)/float(total_r2)])
+        except:
+          featureSet[str(n)+"-harmonic mean-h2"] = "x"
         precision1 = 0
         recall1 = 0
         total_p1 = 0
@@ -51,9 +84,43 @@ class LogRegModel:
         recall2 = 0
         total_p2 = 0
         total_r2 = 0
+      featureSet["average-ngram-precision1"] = float(ngram_prec1)/len(h1)
+      featureSet["average-ngram-precision2"] = float(ngram_prec2)/len(h2)
+      featureSet["wordcount1"] = len(h1[0])
+      featureSet["wordcount2"] = len(h2[0])
 
-      
+      fx_words1 = [word for word in h1[0] if len(word) <= 4]
+      fx_words2 = [word for word in h2[0] if len(word) <= 4]
+      featureSet["fxwordcount1"] = len(fx_words1)
+      featureSet["fxwordcount2"] = len(fx_words2)
 
+      non_words1 = [word for word in h1[0] if word.isalpha() != True]
+      non_words2 = [word for word in h2[0] if word.isalpha() != True]
+      featureSet["nonwordcount1"] = len(non_words1)
+      featureSet["nonwordcount2"] = len(non_words2)
+
+      content_words1 = [word for word in h1[0] if len(word) > 4]
+      content_words2 = [word for word in h2[0] if len(word) > 4]
+      featureSet["contentwordcount1"] = len(content_words1)
+      featureSet["contentwordcount2"] = len(content_words2)
+
+      return featureSet
+
+    def learn(self, h1, h2, ref, correct_class):
+      features = self.extract_features(h1, h2, ref)
+      self.allFeatures.append(features)
+      self.allCorrect.append(correct_class)
+
+    def fitModel(self):
+      X = self.vec.fit_transform(self.allFeatures).toarray()
+      y = np.array(self.allCorrect)
+      self.model.fit(X, y)
+
+    def predict(self, h1, h2, ref):
+      features = self.extract_features(h1, h2, ref)
+      f = self.vec.transform(features).toarray()
+      prediction = self.model.predict(f)[0]
+      print prediction
 
 '''
 def dependency_matches(h, ref, dependency_parser):
@@ -127,30 +194,42 @@ def main():
     #dependency_parser = StanfordDependencyParser(path_to_jar=path_to_jar, path_to_models_jar=path_to_models_jar)
  
     # we create a generator and avoid loading all sentences into a list
-    def sentences():
-        with open(opts.input) as f:
+    def sentences(afile):
+        with open(afile) as f:
             for pair in f:
                 yield [sentence.strip().split() for sentence in pair.split(' ||| ')]
+
  
     def get_ngrams(text, n ):
       n_grams = ngrams(word_tokenize(text), n)
       return [ ' '.join(grams) for grams in n_grams]
-
+    model = LogRegModel()
+    print "getting data..."
     # note: the -n option does not work in the original code
-    for h1, h2, ref in islice(sentences(), opts.num_sentences):
-        rset = set(ref)
-        allgrams1 = [get_ngrams(" ".join(h1), 1)] + [get_ngrams(" ".join(h1), 2)] + [get_ngrams(" ".join(h1), 3)] + [get_ngrams(" ".join(h1), 4)]
-        allgrams2 = get_ngrams(" ".join(h1), 1) + get_ngrams(" ".join(h1), 2) + get_ngrams(" ".join(h1), 3) + get_ngrams(" ".join(h1), 4)
-        allgrams_ref = get_ngrams(" ".join(h1), 1) + get_ngrams(" ".join(h1), 2) + get_ngrams(" ".join(h1), 3) + get_ngrams(" ".join(h1), 4)
-        LogRegModel()
+    for corr, h1, h2, ref in islice(sentences(opts.input), opts.num_sentences):
+        #rset = set(ref)
+        h1sent = unicode(" ".join(h1),'utf-8')
+        h2sent = unicode(" ".join(h2),'utf-8')
+        refsent = unicode(" ".join(ref),'utf-8')
+        allgrams1 = [get_ngrams(h1sent, 1)] + [get_ngrams(h1sent, 2)] + [get_ngrams(h1sent, 3)] + [get_ngrams(h1sent, 4)]
+        allgrams2 = [get_ngrams(h2sent, 1)] + [get_ngrams(h2sent, 2)] + [get_ngrams(h2sent, 3)] + [get_ngrams(h2sent, 4)]
+        allgrams_ref = [get_ngrams(refsent, 1)] + [get_ngrams(refsent, 2)] + [get_ngrams(refsent, 3)] + [get_ngrams(refsent, 4)]
+        model.learn(allgrams1, allgrams2, allgrams_ref, corr)
         #h1_match = word_matches(h1, rset)
         #h2_match = word_matches(h2, rset)
         #h1_match = dependency_matches(h1, ref, dependency_parser)
         #h2_match = dependency_matches(h2, ref, dependency_parser)
-        print(-1 if h1_match > h2_match else # \begin{cases}
-                (0 if h1_match == h2_match
-                    else 1)) # \end{cases}
- 
+        #print(-1 if h1_match > h2_match else # \begin{cases}
+                #(0 if h1_match == h2_match
+                 #   else 1)) # \end{cases}
+
+    print "fitting model..."
+    model.fitModel()
+    for h1, h2, ref in islice(sentences(opts.test), opts.num_sentences):
+      allgrams1 = [get_ngrams(h1sent, 1)] + [get_ngrams(h1sent, 2)] + [get_ngrams(h1sent, 3)] + [get_ngrams(h1sent, 4)]
+      allgrams2 = [get_ngrams(h2sent, 1)] + [get_ngrams(h2sent, 2)] + [get_ngrams(h2sent, 3)] + [get_ngrams(h2sent, 4)]
+      allgrams_ref = [get_ngrams(refsent, 1)] + [get_ngrams(refsent, 2)] + [get_ngrams(refsent, 3)] + [get_ngrams(refsent, 4)]
+      print model.predict(allgrams1, allgrams2, allgrams_ref)
 # convention to allow import of this file as a module
 if __name__ == '__main__':
     main()
