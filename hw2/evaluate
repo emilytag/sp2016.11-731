@@ -8,7 +8,10 @@ from sklearn.feature_extraction import DictVectorizer
 import numpy as np
 from nltk.tokenize import word_tokenize
 from nltk.util import ngrams
- 
+from gensim.models import Word2Vec
+from nltk.corpus import brown
+
+''' 
 class LogRegModel:
     def __init__(self):
       self.model = LogisticRegression()
@@ -44,6 +47,7 @@ class LogRegModel:
             recall1 += 1
           if word in h2[n]:
             recall2 += 1
+        
         try:
           ngram_prec1 += float(precision1)/float(total_p1)
         except:
@@ -52,6 +56,7 @@ class LogRegModel:
           ngram_prec2 += float(precision2)/float(total_p2)
         except:
           ngram_prec2 += 0.0 
+        
         try:
           featureSet[str(n)+"-precision-h1"] = float(precision1)/float(total_p1)
         except:
@@ -60,6 +65,8 @@ class LogRegModel:
           featureSet[str(n)+"-precision-h2"] = float(precision2)/float(total_p2)
         except:
           featureSet[str(n)+"-precision-h2"] = "x"
+        #this feature only = 0.436534
+        
         try:
           featureSet[str(n)+"-recall-h1"] = float(recall1)/float(total_r1)
         except:
@@ -68,6 +75,8 @@ class LogRegModel:
           featureSet[str(n)+"-recall-h2"] = float(recall2)/float(total_r2)
         except:
           featureSet[str(n)+"-recall-h2"] = "x"
+        #this feature only = 0.435084
+        
         try:
           featureSet[str(n)+"-harmonic mean-h1"] = stats.hmean([float(precision1)/float(total_p1), float(recall1)/float(total_r1)])
         except:
@@ -76,6 +85,8 @@ class LogRegModel:
           featureSet[str(n)+"-harmonic mean-h2"] = stats.hmean([float(precision2)/float(total_p2), float(recall2)/float(total_r2)])
         except:
           featureSet[str(n)+"-harmonic mean-h2"] = "x"
+        #this feature only = 0.437822  
+       
         precision1 = 0
         recall1 = 0
         total_p1 = 0
@@ -84,26 +95,36 @@ class LogRegModel:
         recall2 = 0
         total_p2 = 0
         total_r2 = 0
-      featureSet["average-ngram-precision1"] = float(ngram_prec1)/len(h1)
-      featureSet["average-ngram-precision2"] = float(ngram_prec2)/len(h2)
-      featureSet["wordcount1"] = len(h1[0])
+      
+      #featureSet["average-ngram-precision1"] = float(ngram_prec1)/len(h1) #only this feature = 0.435084
+      #featureSet["average-ngram-precision2"] = float(ngram_prec2)/len(h2)
+      
+      featureSet["wordcount1"] = len(h1[0]) #only this feature = 0.437339
       featureSet["wordcount2"] = len(h2[0])
-
+      
       fx_words1 = [word for word in h1[0] if len(word) <= 4]
       fx_words2 = [word for word in h2[0] if len(word) <= 4]
-      featureSet["fxwordcount1"] = len(fx_words1)
+      featureSet["fxwordcount1"] = len(fx_words1) #only this feature = 0.431701
       featureSet["fxwordcount2"] = len(fx_words2)
-
+      
       non_words1 = [word for word in h1[0] if word.isalpha() != True]
       non_words2 = [word for word in h2[0] if word.isalpha() != True]
-      featureSet["nonwordcount1"] = len(non_words1)
+      featureSet["nonwordcount1"] = len(non_words1) #only this feature = 0.431701
       featureSet["nonwordcount2"] = len(non_words2)
-
+      
       content_words1 = [word for word in h1[0] if len(word) > 4]
       content_words2 = [word for word in h2[0] if len(word) > 4]
-      featureSet["contentwordcount1"] = len(content_words1)
+      featureSet["contentwordcount1"] = len(content_words1) 
       featureSet["contentwordcount2"] = len(content_words2)
-
+      #only this feature = 0.430896
+      #this + nonwordcount = 0.435406
+      #this + nonwordcount + fxwordcount = 0.438144
+      #this + nonwordcount + fxwordcount + wordcount = 0.438789
+      #this + nonwordcount + fxwordcount + wordcount + avg ngram prec = 0.433956
+      #this + nonwordcount + fxwordcount + wordcount + hmean = 0.440077
+      #this + nonwordcount + fxwordcount + wordcount + hmean + recall = 0.436534
+      #this + nonwordcount + fxwordcount + wordcount + hmean + precision = 0.432829
+      #all = 0.436856
       return featureSet
 
     def learn(self, h1, h2, ref, correct_class):
@@ -123,7 +144,7 @@ class LogRegModel:
       prob = self.model.predict_proba(f)
       print self.model.predict(f)[0]
 
-'''
+
 def dependency_matches(h, ref, dependency_parser):
     precision = 0
     recall = 0
@@ -173,13 +194,62 @@ def dependency_matches(h, ref, dependency_parser):
     except:
       out = 0
     return out
-'''
+
 
 def word_matches(h, ref):
     return sum(1 for w in h if w in ref)
     # or sum(w in ref for w in f) # cast bool -> int
     # or sum(map(ref.__contains__, h)) # ugly!
- 
+''' 
+
+def meteorScore(hyp, ref, b):
+    hyp = " ".join(hyp)
+    hyp = hyp.decode('utf-8')
+    hypToken = [w.lower().strip() for w in word_tokenize(hyp) if w.isalnum()] # any (c.isalnum() for c in w)
+    ref = " ".join(ref)
+    ref = ref.decode('utf-8')
+    refToken = [w.lower().strip() for w in word_tokenize(ref) if w.isalnum()]
+    sent_score = 0
+    for word1 in hypToken:
+      sims = []
+      for word2 in refToken:
+        try:
+          sims.append(b.similarity(word1, word2))
+        except:
+          sims.append(0.0) 
+      score = max(sims)
+      sent_score += score
+    try:
+      return float(sent_score)/float(len(hypToken))
+    except:
+      return 0.0
+
+    '''
+    try:
+        precision = m / len(hypToken)
+        recall = m / len(refToken)
+        fmean = (10.0*precision*recall) / (7.0*recall + 3.0 * precision)
+        #fmean = stats.hmean([precision, recall])
+        return fmean
+    except:
+        return 0
+    '''
+    
+def bleuScore(hyp, ref):
+    hyp = " ".join(hyp)
+    hyp = hyp.decode('utf-8')
+    hypToken = [w.lower().strip() for w in word_tokenize(hyp) if w.isalnum() ] # any (c.isalnum() for c in w)
+    bigrams = [b for b in zip(hypToken[:-1], hypToken[1:])]
+    ref = " ".join(ref)
+    ref = ref.decode('utf-8')
+    refToken = [w.lower().strip() for w in word_tokenize(ref) if w.isalnum() ]
+    m = sum([1.0 for w in hypToken if w in refToken])
+
+    try:
+        precision = m / len(hypToken)
+        
+    except:
+        return 0
 def main():
     parser = argparse.ArgumentParser(description='Evaluate translation hypotheses.')
     # PEP8: use ' and not " for strings
@@ -200,15 +270,18 @@ def main():
             for pair in f:
                 yield [sentence.strip().split() for sentence in pair.split(' ||| ')]
 
- 
+    '''
     def get_ngrams(text, n ):
       n_grams = ngrams(word_tokenize(text), n)
       return [ ' '.join(grams) for grams in n_grams]
-    model = LogRegModel()
-    print "getting data..."
+    '''
+    #model = LogRegModel()
+    b = Word2Vec(brown.sents())
+    #print "getting data..."
     # note: the -n option does not work in the original code
-    for corr, h1, h2, ref in islice(sentences(opts.input), opts.num_sentences):
+    for h1, h2, ref in islice(sentences(opts.input), opts.num_sentences):
         #rset = set(ref)
+        '''
         corr = "".join(corr)
         h1sent = unicode(" ".join(h1),'utf-8')
         h2sent = unicode(" ".join(h2),'utf-8')
@@ -221,12 +294,18 @@ def main():
         #h2_match = word_matches(h2, rset)
         #h1_match = dependency_matches(h1, ref, dependency_parser)
         #h2_match = dependency_matches(h2, ref, dependency_parser)
-        #print(-1 if h1_match > h2_match else # \begin{cases}
-                #(0 if h1_match == h2_match
-                 #   else 1)) # \end{cases}
+        '''
+        h1_match = meteorScore(h1, ref, b)
+        h2_match = meteorScore(h2, ref, b)
+        #bleu1 = bleuScore(h1, ref)
+        #print h1_match, h2_match
+        print(-1 if h1_match > h2_match else # \begin{cases}
+                (0 if h1_match == h2_match
+                    else 1)) # \end{cases}
 
-    print "fitting model..."
-    model.fitModel()
+    #print "fitting model..."
+    #model.fitModel()
+    '''
     for h1, h2, ref in islice(sentences("data/dev.sents.txt"), opts.num_sentences):
       h1sent = unicode(" ".join(h1),'utf-8')
       h2sent = unicode(" ".join(h2),'utf-8')
@@ -235,6 +314,7 @@ def main():
       allgrams2 = [get_ngrams(h2sent, 1)] + [get_ngrams(h2sent, 2)] + [get_ngrams(h2sent, 3)] + [get_ngrams(h2sent, 4)]
       allgrams_ref = [get_ngrams(refsent, 1)] + [get_ngrams(refsent, 2)] + [get_ngrams(refsent, 3)] + [get_ngrams(refsent, 4)]
       model.predict(allgrams1, allgrams2, allgrams_ref)
+    '''
 # convention to allow import of this file as a module
 if __name__ == '__main__':
     main()
