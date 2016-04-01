@@ -20,7 +20,7 @@ sys.stderr.write('Decoding %s...\n' % (opts.input,))
 input_sents = [tuple(line.strip().split()) for line in open(opts.input).readlines()[:opts.num_sents]]
 
 hypothesis = namedtuple('hypothesis', 'logprob, lm_state, predecessor, phrase')
-for f in input_sents:
+for sent in input_sents:
     # The following code implements a DP monotone decoding
     # algorithm (one that doesn't permute the target phrases).
     # Hence all hypotheses in stacks[i] represent translations of 
@@ -29,24 +29,48 @@ for f in input_sents:
     # of any i words (remember to keep track of which words those
     # are, and to estimate future costs)
     initial_hypothesis = hypothesis(0.0, lm.begin(), None, None)
-
-    stacks = [{} for _ in f] + [{}]
+    stacks = [{} for _ in sent] + [{}]
     stacks[0][lm.begin()] = initial_hypothesis
-    for i, stack in enumerate(stacks[:-1]):
-        # extend the top s hypotheses in the current stack
+    for position, stack in enumerate(stacks[:-1]):
         for h in heapq.nlargest(opts.s, stack.itervalues(), key=lambda h: h.logprob): # prune
-            for j in xrange(i+1,len(f)+1):
-                if f[i:j] in tm:
-                    for phrase in tm[f[i:j]]:
+            for end_span in xrange(position+1,len(sent)+1):
+                for other_span in range(end_span+1,len(sent)+1):
+                    if sent[end_span:other_span] in tm and sent[position:end_span] in  tm:
+                        switch_poss = []
+                        for phrase in tm[sent[end_span:other_span]]:
+                            logprob = h.logprob + phrase.logprob
+                            lm_state = h.lm_state
+                            for word in phrase.english.split():
+                                (lm_state, word_logprob) = lm.score(lm_state, word)
+                                logprob += word_logprob
+                            logprob += lm.end(lm_state) if end_span == len(sent) else 0.0
+                            new_hypothesis = hypothesis(logprob, lm_state, h, phrase)
+                            switch_poss.append(new_hypothesis)
+                        #print "newstack", switch_poss
+                        for poss in switch_poss:
+                            for phrase in tm[sent[position:end_span]]:
+                                logprob = poss.logprob + phrase.logprob
+                                lm_state = poss.lm_state
+                                for word in phrase.english.split():
+                                    (lm_state, word_logprob) = lm.score(lm_state, word)
+                                    logprob += word_logprob
+                                logprob += lm.end(lm_state) if other_span == len(sent) else 0.0
+                                new_hypothesis = hypothesis(logprob, lm_state, poss, phrase)
+                                if lm_state not in stacks[other_span] or stacks[other_span][lm_state].logprob < logprob: # second case is recombination
+                                    stacks[other_span][lm_state] = new_hypothesis
+        for h in heapq.nlargest(opts.s, stack.itervalues(), key=lambda h: h.logprob): # prune
+            for end_span in xrange(position+1,len(sent)+1):
+                if sent[position:end_span] in tm:
+                    for phrase in tm[sent[position:end_span]]:
                         logprob = h.logprob + phrase.logprob
                         lm_state = h.lm_state
                         for word in phrase.english.split():
                             (lm_state, word_logprob) = lm.score(lm_state, word)
                             logprob += word_logprob
-                        logprob += lm.end(lm_state) if j == len(f) else 0.0
+                        logprob += lm.end(lm_state) if end_span == len(sent) else 0.0
                         new_hypothesis = hypothesis(logprob, lm_state, h, phrase)
-                        if lm_state not in stacks[j] or stacks[j][lm_state].logprob < logprob: # second case is recombination
-                            stacks[j][lm_state] = new_hypothesis 
+                        if lm_state not in stacks[end_span] or stacks[end_span][lm_state].logprob < logprob: # second case is recombination
+                            stacks[end_span][lm_state] = new_hypothesis
 
     # find best translation by looking at the best scoring hypothesis
     # on the last stack
