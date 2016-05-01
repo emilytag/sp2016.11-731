@@ -30,6 +30,11 @@ int kSOS2;
 int kEOS;
 int kEOS2;
 
+typedef pair<float,int> prob_in_pair;
+
+bool comparator ( const prob_in_pair& l, const prob_in_pair& r)
+   { return l.first > r.first; }
+
 unsigned IN_LAYERS = 1;
 unsigned OUT_LAYERS = 2;
 unsigned INPUT_DIM = 8;  //256
@@ -108,52 +113,46 @@ struct EncoderDecoder {
 void Translate(vector<vector<int>>&  test_sents, Model& model){
   EncoderDecoder<LSTMBuilder> lm(model);
   for(int i = 0; i < test_sents.size(); ++i) {
+  	for (int j = 0; j < test_sents[i].size(); ++j) {
+  		cerr << sourceD.Convert(test_sents[i][j]) << " ";
+  	}
+  	cerr << "\n";
   	ComputationGraph cg;
   	Expression encoding = lm.Encoder(cg, test_sents[i]);
   	Expression enc2dec = parameter(cg, lm.p_enc2dec);
   	Expression decbias = parameter(cg, lm.p_decbias);
   	Expression outbias = parameter(cg, lm.p_outbias);
+  	Expression enc2out = parameter(cg, lm.p_enc2out);
   	Expression c0 = affine_transform({decbias, enc2dec, encoding});
   	vector<Expression> init(OUT_LAYERS * 2);
   	for (unsigned i = 0; i < OUT_LAYERS; ++i) {
-  	    init[i] = pickrange(c0, i * HIDDEN_DIM, i * HIDDEN_DIM + HIDDEN_DIM);
-  	    init[i + OUT_LAYERS] = tanh(init[i]);
-  	}
+  	      init[i] = pickrange(c0, i * HIDDEN_DIM, i * HIDDEN_DIM + HIDDEN_DIM);
+  	      init[i + OUT_LAYERS] = tanh(init[i]);
+  	    }
   	lm.outbuilder.new_graph(cg);
   	lm.outbuilder.start_new_sequence(init);
   	Expression start_token_lookup = lookup(cg, lm.p_c, kSOS2);
-  	lm.outbuilder.add_input(start_token_lookup);
-  	Expression current_word = lm.outbuilder.back();
-  	double best = 9e+99;
-  	int best_idx = -1;
-  	for (int key = 0; key < targetD.size(); ++key){
-  		Expression curr_neg_log_softmax = pickneglogsoftmax(current_word, key);
-  		double curr_score = as_scalar(cg.incremental_forward());
-        if (curr_score < best) {
-			best = curr_score;
-	 		best_idx = key;
- 	    } 
+  	Expression h_t = lm.outbuilder.add_input(start_token_lookup);
+  	int translation = targetD.Convert("x");
+  	int count = 0;
+  	while(translation != kEOS2 and count < 50){
+    count++;
+  	Expression u_t = affine_transform({outbias, enc2out, h_t});
+  	Expression probs_embedding = log_softmax(u_t);
+  	vector<float> probs = as_vector(cg.incremental_forward());
 
+  	vector<pair<float, int>> prob_idx; // Parse probabilities and indices
+  	for (int k = 0; k < probs.size(); ++k) {
+  	  prob_idx.push_back(make_pair(probs[k], k));
   	}
-
-    while (best_idx != kEOS2) {
-        cout << targetD.Convert(best_idx) << " ";
-	    Expression token_lookup = lookup(cg, lm.p_c, best_idx);
-	    lm.outbuilder.add_input(token_lookup);
-	    Expression current_word = lm.outbuilder.back();
-	    best = 9e+99; //restart
-	    best_idx = -1; //restart
-	    for (int key = 0; key < targetD.size(); ++key) {
-	      Expression curr_neg_log_softmax = pickneglogsoftmax(current_word, key);
-	      double curr_score = as_scalar(cg.incremental_forward());
-	      if (curr_score < best) {
-	          best = curr_score;
-	          best_idx = key;
-	      }
-	    }
-
-	  }
-  } 
+  	sort(prob_idx.begin(), prob_idx.end(), comparator);
+  	int translation = prob_idx[0].second;
+  	cerr << targetD.Convert(translation) << " ";
+  	Expression x_t = lookup(cg, lm.p_c, translation);
+  	h_t = lm.outbuilder.add_input(x_t);
+  }
+  }
+  cerr << "\n"; 
 }
 
 int main(int argc, char** argv) {
@@ -239,7 +238,7 @@ int main(int argc, char** argv) {
 	    int report = 0;
 	    double tsize = 0;
 	    while(1) {
-	          Timer iteration("completed in");
+	          //Timer iteration("completed in");
 	          double loss = 0;
 	          unsigned ttags = 0;
 	          for (unsigned i = 0; i < report_every_i; ++i) {
