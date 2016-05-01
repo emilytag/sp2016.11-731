@@ -47,7 +47,7 @@ struct EncoderDecoder {
 	Builder outbuilder;
 
 	explicit EncoderDecoder(Model& model): inbuilder(IN_LAYERS, INPUT_DIM, HIDDEN_DIM, &model),
-	outbuilder(IN_LAYERS, INPUT_DIM, HIDDEN_DIM, &model) {
+	outbuilder(OUT_LAYERS, INPUT_DIM, HIDDEN_DIM, &model) {
 		p_c = model.add_lookup_parameters(VOCAB_SIZE, {INPUT_DIM});
 		p_enc2dec = model.add_parameters({HIDDEN_DIM * OUT_LAYERS, HIDDEN_DIM});
 		p_decbias = model.add_parameters({HIDDEN_DIM * OUT_LAYERS});
@@ -67,8 +67,8 @@ struct EncoderDecoder {
     	Expression embedding_norm = sum(embedding) / ((float)embedding.size());
     	return embedding_norm;
     }
-    void BuildGraph(const vector<int>& source_tokens, const vector<int>& target_tokens, ComputationGraph& cg) {
-    	cerr << source_tokens.size() << "\n";
+    Expression BuildGraph(const vector<int>& source_tokens, const vector<int>& target_tokens, ComputationGraph& cg) {
+    	//cerr << source_tokens.size() << "\n";
     	const unsigned target_len = target_tokens.size();
     	Expression encoding = Encoder(cg, source_tokens);
     	Expression enc2dec = parameter(cg, p_enc2dec);
@@ -76,27 +76,32 @@ struct EncoderDecoder {
     	Expression outbias = parameter(cg, p_outbias);
     	Expression enc2out = parameter(cg, p_enc2out);
     	Expression c0 = affine_transform({decbias, enc2dec, encoding});
-    	vector<Expression> init(OUT_LAYERS);
+    	vector<Expression> init(OUT_LAYERS * 2);
+    	//initialize decoder
     	for (unsigned i = 0; i < OUT_LAYERS; ++i) {
     	      init[i] = pickrange(c0, i * HIDDEN_DIM, i * HIDDEN_DIM + HIDDEN_DIM);
     	      init[i + OUT_LAYERS] = tanh(init[i]);
     	    }
+    	//vector<float> ok = as_vector(cg.incremental_forward());
+    	//for (std::vector<float>::const_iterator i = ok.begin(); i != ok.end(); ++i)
+    	//    std::cerr << *i << ' ';
+    	//cerr << "\n";
     	outbuilder.new_graph(cg);
     	outbuilder.start_new_sequence(init);
-    	vector<Expression> errs(target_tokens.size() + 1);
-    	Expression start_token_lookup = lookup(cg, p_c, kSOS2);
-    	outbuilder.add_input(start_token_lookup);
+    	vector<Expression> errs(target_len + 1);
+    	Expression h_t = outbuilder.add_input(lookup(cg, p_c, kSOS2));
     	for (unsigned t = 0; t < target_len; ++t) {
-    		Expression outback = outbuilder.back();
-    		Expression affine_outback = affine_transform({outbias, enc2out, outback});
+    		//Expression outback = outbuilder.back();
+    		Expression affine_outback = affine_transform({outbias, enc2out, h_t});
     		errs[t] = pickneglogsoftmax(affine_outback, target_tokens[t]);
-    		Expression next_token_lookup = lookup(cg, p_c, target_tokens[t]);
-    		outbuilder.add_input(next_token_lookup);
+    		Expression x_t = lookup(cg, p_c, target_tokens[t]);
+    		Expression h_t = outbuilder.add_input(x_t);
     	}
-    	Expression outback_last = outbuilder.back();
-    	Expression affine_outback_last = affine_transform({outbias, enc2out, outback_last});
+    	//Expression outback_last = outbuilder.back();
+    	Expression affine_outback_last = affine_transform({outbias, enc2out, h_t});
     	errs.back() = pickneglogsoftmax(affine_outback_last, kEOS2);
-    	sum(errs);
+    	Expression final_errs = sum(errs);
+    	return final_errs;
     }
 };
 
@@ -237,7 +242,6 @@ int main(int argc, char** argv) {
 	          Timer iteration("completed in");
 	          double loss = 0;
 	          unsigned ttags = 0;
-	          double correct = 0;
 	          for (unsigned i = 0; i < report_every_i; ++i) {
 	            if (si == train_source.size()) {
 	              si = 0;
@@ -257,7 +261,7 @@ int main(int argc, char** argv) {
 				sgd->update(1.0);
 			}
 			sgd->status();
-			cerr << " E = " << (loss / ttags) << " ppl=" << exp(loss / ttags) << " (acc=" << (correct / ttags) << ") ";
+			cerr << " E = " << (loss / ttags) << " ppl=" << exp(loss / ttags);
 			report++;
 			if (report % dev_every_i_reports == 0) {
 			       double dloss = 0;
@@ -279,7 +283,10 @@ int main(int argc, char** argv) {
 			         boost::archive::text_oarchive oa(out);
 			         oa << model;
 			       }
-			       cerr << "\n***DEV [epoch=" << (tsize / (double)train_source.size()) << "] E = " << (dloss / dtags) << " ppl=" << exp(dloss / dtags) << " acc=" << (dcorr / dtags) << ' ';
+			       vector<vector<int>> test;
+			       test.push_back(dev_source[0]);
+			       Translate(test, model);
+			       cerr << "***DEV [epoch=" << (tsize / (double)train_source.size()) << "] E = " << (dloss / dtags) << " ppl=" << exp(dloss / dtags) << " acc=" << (dcorr / dtags) << ' ';
 			     }
 			 }
 		}
