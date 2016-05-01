@@ -110,46 +110,45 @@ struct EncoderDecoder {
     }
 };
 
-void Translate(vector<vector<int>>&  test_sents, Model& model){
-  EncoderDecoder<LSTMBuilder> lm(model);
+void Translate(vector<vector<int>>&  test_sents, EncoderDecoder<LSTMBuilder>& tr){
   for(int i = 0; i < test_sents.size(); ++i) {
   	for (int j = 0; j < test_sents[i].size(); ++j) {
   		cerr << sourceD.Convert(test_sents[i][j]) << " ";
   	}
   	cerr << "\n";
   	ComputationGraph cg;
-  	Expression encoding = lm.Encoder(cg, test_sents[i]);
-  	Expression enc2dec = parameter(cg, lm.p_enc2dec);
-  	Expression decbias = parameter(cg, lm.p_decbias);
-  	Expression outbias = parameter(cg, lm.p_outbias);
-  	Expression enc2out = parameter(cg, lm.p_enc2out);
+  	Expression encoding = tr.Encoder(cg, test_sents[i]);
+  	Expression enc2dec = parameter(cg, tr.p_enc2dec);
+  	Expression decbias = parameter(cg, tr.p_decbias);
+  	Expression outbias = parameter(cg, tr.p_outbias);
+  	Expression enc2out = parameter(cg, tr.p_enc2out);
   	Expression c0 = affine_transform({decbias, enc2dec, encoding});
   	vector<Expression> init(OUT_LAYERS * 2);
   	for (unsigned i = 0; i < OUT_LAYERS; ++i) {
   	      init[i] = pickrange(c0, i * HIDDEN_DIM, i * HIDDEN_DIM + HIDDEN_DIM);
   	      init[i + OUT_LAYERS] = tanh(init[i]);
   	    }
-  	lm.outbuilder.new_graph(cg);
-  	lm.outbuilder.start_new_sequence(init);
-  	Expression start_token_lookup = lookup(cg, lm.p_c, kSOS2);
-  	Expression h_t = lm.outbuilder.add_input(start_token_lookup);
+  	tr.outbuilder.new_graph(cg);
+  	tr.outbuilder.start_new_sequence(init);
+  	Expression h_t = tr.outbuilder.add_input(lookup(cg, tr.p_c, kSOS2));
+  	cerr << "<s> ";
   	int translation = targetD.Convert("x");
   	int count = 0;
   	while(translation != kEOS2 and count < 50){
+  	//cerr << translation << " ";
     count++;
   	Expression u_t = affine_transform({outbias, enc2out, h_t});
   	Expression probs_embedding = log_softmax(u_t);
   	vector<float> probs = as_vector(cg.incremental_forward());
-
-  	vector<pair<float, int>> prob_idx; // Parse probabilities and indices
+  	vector<pair<float, int>> prob_idx; // probabilities and indices
   	for (int k = 0; k < probs.size(); ++k) {
   	  prob_idx.push_back(make_pair(probs[k], k));
   	}
   	sort(prob_idx.begin(), prob_idx.end(), comparator);
-  	int translation = prob_idx[0].second;
+  	translation = prob_idx[0].second;
   	cerr << targetD.Convert(translation) << " ";
-  	Expression x_t = lookup(cg, lm.p_c, translation);
-  	h_t = lm.outbuilder.add_input(x_t);
+  	Expression x_t = lookup(cg, tr.p_c, translation);
+  	h_t = tr.outbuilder.add_input(x_t);
   }
   }
   cerr << "\n"; 
@@ -225,7 +224,7 @@ int main(int argc, char** argv) {
 		    dev_target.push_back(x);
 		  }
 		}	
-		Trainer* sgd = new AdamTrainer(&model);
+		Trainer* sgd = new SimpleSGDTrainer(&model);
 		sgd->eta_decay = 0.08;
 		EncoderDecoder<LSTMBuilder> lm(model);
 		double best = 9e+99;
@@ -260,7 +259,7 @@ int main(int argc, char** argv) {
 				sgd->update(1.0);
 			}
 			sgd->status();
-			cerr << " E = " << (loss / ttags) << " ppl=" << exp(loss / ttags);
+			cerr << " E = " << (loss / ttags) << " ppl=" << exp(loss / ttags) << "\n";
 			report++;
 			if (report % dev_every_i_reports == 0) {
 			       double dloss = 0;
@@ -284,8 +283,8 @@ int main(int argc, char** argv) {
 			       }
 			       vector<vector<int>> test;
 			       test.push_back(dev_source[0]);
-			       Translate(test, model);
-			       cerr << "***DEV [epoch=" << (tsize / (double)train_source.size()) << "] E = " << (dloss / dtags) << " ppl=" << exp(dloss / dtags) << " acc=" << (dcorr / dtags) << ' ';
+			       Translate(test, lm);
+			       cerr << "***DEV [epoch=" << (tsize / (double)train_source.size()) << "] E = " << (dloss / dtags) << " ppl=" << exp(dloss / dtags) << "\n" << ' ';
 			     }
 			 }
 		}
@@ -321,7 +320,8 @@ int main(int argc, char** argv) {
 	     test_source.push_back(x);
 	   }
 	 }
-	 Translate(test_source, model);
+	 EncoderDecoder<LSTMBuilder> tr(model);
+	 Translate(test_source, tr);
 	 }
 }
 //train on the train+dev data duh
